@@ -1,0 +1,16 @@
+# Copyright (c) 2022 Jan Vrany
+#
+
+from sys import path
+from os.path import join
+
+try:
+    import vdb as __vdb
+except ImportError:
+    path.append(join("@OPENJ9_GDB_DIR@", "omr-gdb", "vdb" , "python"))
+
+path.append(join("@OPENJ9_GDB_DIR@", "omr-gdb"))
+
+path.append("@OPENJ9_GDB_DIR@")
+
+from openj9 import *
