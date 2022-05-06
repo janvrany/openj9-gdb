@@ -60,9 +60,6 @@ def _lookup_jit_helper_by_pc(pc):
 
     return None
 
-_char = gdb.lookup_type('char')
-
-
 class UnwindInfo(object):
     """
     This is a simple mock of GDB's UnwindInfo class that
@@ -113,8 +110,9 @@ class JITFrameInfo(object):
         #
         # NOTE: OpenJ9 uses s11 as java stack pointer, see RVPrivateLinkage.cpp
         #
-        # NOTE: We define method frame's CFA as the value of SP (s11) upon entry
-        #       to the method, that is, before methods own frame has been built.
+        # NOTE: We define method frame's CFA as the value of SP (s11) once the
+        #       frame is built. This is unusual, but matches what's in (some) OpenJ9
+        #       code is called (java) BP.
         #
         # NOTE: Here we assume the prologue is always in the same form:
         #
@@ -140,15 +138,17 @@ class JITFrameInfo(object):
         #
         # This return sequence can be inlined into the code multiple times.
 
-        frame_nslots = self.method.numFrameSlots()
-        frame_nparms = self.method.numParamSlots()
+        num_frame_slots = self.method.numFrameSlots()
+        num_param_slots = self.method.numParamSlots()
 
-        if self.pc < (self.method.startPC + frame_nparms*4 + 4 + 4 + 4): # --- this slot
+        frame_size_in_bytes = num_frame_slots*8 + 8
+
+        if self.pc < (self.method.startPC + num_param_slots*4 + 4 + 4 + 4): # --- this slot
             #                                            \   \   `-- store RA instruction
             #                                             \   `----- adjust SP instruction
             #                                              `-------- load params from stack
             # We're inside the prologue before the frame is built and SP (s11) adjusted
-            cfa = pending_frame.read_register('s11')
+            cfa = pending_frame.read_register('s11') + frame_size_in_bytes
             ra = pending_frame.read_register('ra')
         else:
             try:
@@ -157,11 +157,11 @@ class JITFrameInfo(object):
                 maybe_ret = None
             if maybe_ret == b'\x67\x80\x00\x00':
                 # We're inside epilogue after frame has been destoyed and SP (s11) adjusted
-                cfa = pending_frame.read_register('s11')
+                cfa = pending_frame.read_register('s11') + frame_size_in_bytes
             else:
                 # We're somewhere in between...
-                cfa = pending_frame.read_register('s11') + frame_nslots*8 + 8 # FIXME: why + another 8bytes?
-            ra = cfa.cast(_char.pointer().pointer())[-1]
+                cfa = pending_frame.read_register('s11')
+            ra = cfa.cast(cfa.type.pointer())[num_frame_slots]
 
         # Ugh, this is hacky. Since OpenJ9 uses continuation-passing style. In case returning from
         # interpreter.  return address is "faked" and points to "return trampoline" and not past
@@ -198,8 +198,7 @@ class JITFrameInfo(object):
         #
         # [1]: https://sourceware.org/gdb/current/onlinedocs/gdb/Unwinding-Frames-in-Python.html#Unwinding-Frames-in-Python
         #
-
-        ui.add_saved_register('s11', cfa)
+        ui.add_saved_register('s11', cfa + frame_size_in_bytes)
         ui.add_saved_register('ra',  ra)
         ui.add_saved_register('pc',  ra)
         ui.add_saved_register('sp',  pending_frame.read_register('sp'))

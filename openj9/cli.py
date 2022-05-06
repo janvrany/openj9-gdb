@@ -11,7 +11,7 @@ OpenJ9 specific commands
 import gdb
 import re
 
-class __UnwindCmd(gdb.Command):
+class __Unwind(gdb.Command):
     """
     Tries to unwind frame using registered unwinders
     Used mainly for debugging the unwinder.
@@ -59,7 +59,7 @@ class __UnwindCmd(gdb.Command):
                     return unwindinfo
         return None
 
-uw = __UnwindCmd()
+uw = __Unwind()
 
 class __LookupMethod(gdb.Command):
     """
@@ -115,8 +115,46 @@ class __LookupMethod(gdb.Command):
                 return True
 
         methods = (getattr(objf, 'j9method') for objf in gdb.objfiles() if hasattr(objf, 'j9method'))
-        matching = (method for method in methods if matches(method))
+        matching = [method for method in methods if matches(method)]
 
         return matching
 
 lm = __LookupMethod()
+
+class __DumpInstructions(gdb.Command):
+    def __init__(self):
+        super().__init__('di', gdb.COMMAND_DATA)
+
+    def invoke(self, args, from_tty):
+        argv = gdb.string_to_argv(args)
+        if len(argv) != 0:
+            raise Exception("di takes no arguments (%d given)" % len(argv))
+        self()
+
+    def _dump1(self, insn):
+        pc = int(insn['_binaryEncodingBuffer'])
+        sz = int(insn['_binaryLength'])
+
+        if sz > 0:
+            node = insn['_node']
+
+            disassmInfo = gdb.selected_inferior().architecture().disassemble(pc)
+
+            def shorten(string, maxlen):
+                if len(string) > maxlen:
+                    return string[0:maxlen-3].replace('\t', ' ') + '...'
+                else:
+                    return string.replace('\t', ' ')
+
+            print("0x%016x  %-30s IL %s" %( pc, shorten(disassmInfo[0]['asm'], 30), gdb.default_visualizer(node).to_string()))
+
+    def __call__(self):
+        comp = gdb.selected_frame().read_var('compiler')
+        insn = comp['_codeGenerator']['_firstInstruction']
+        while (int(insn) != 0): # while insn != nullptr
+            self._dump1(insn)
+            insn = insn['_next']
+
+di = __DumpInstructions()
+
+
