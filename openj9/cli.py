@@ -74,19 +74,22 @@ class __LookupMethod(gdb.Command):
     If REGEXP is given, all methods whose name matches
     given regexp are looked up and printed.
     """
-    def __init__(self):
-        super().__init__('lm', gdb.COMMAND_DATA)
+    def __init__(self, name = 'lm'):
+        super().__init__(name, gdb.COMMAND_DATA)
+
+    def _dump1(self, method):
+        print("0x%016x - 0x%016x '%s'" % (method.startPC, method.endPC, method.name))
 
     def invoke(self, args, from_tty):
         argv = gdb.string_to_argv(args)
         if len(argv) > 1:
-            raise Exception("ls takes only one argument (%d given)" % len(argv))
+            raise Exception("lm takes only one argument (%d given)" % len(argv))
         elif len(argv) == 0:
             argv = ['$pc']
         any_found = False
         for method in self(argv[0]):
             any_found = True
-            print("0x%016x - 0x%016x '%s'" % (method.startPC, method.endPC, method.name))
+            self._dump1(method)
         if not any_found:
             print("No method found.")
 
@@ -120,6 +123,26 @@ class __LookupMethod(gdb.Command):
         return matching
 
 lm = __LookupMethod()
+
+class __DumpMethods(__LookupMethod):
+    def __init__(self, name = 'dm'):
+        super().__init__(name)
+
+    def _dump1(self, method):
+        print("0x%016x - 0x%016x '%s'" % (method.startPC, method.endPC, method.name))
+        print(" #  Java line number table:")
+        print("    addr            bci    line")
+        for insn, bci in method.bytecodeTable:
+            print("    0x%08x    %-5d  %d" % ( insn, bci, method.lineNumberTable[bci]) )
+
+        linetable = method._symtab.linetable()
+        print(" #  GDB symtab linetable:")
+        print("    addr                   line")
+        for entry in linetable:
+            print("    0x%08x           %d" % ( entry.pc, entry.line) )
+        print()
+
+dm = __DumpMethods()
 
 class __DumpInstructions(gdb.Command):
     def __init__(self):
