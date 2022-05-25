@@ -22,7 +22,7 @@ import gdb
 import gdb.unwinder
 
 from functools import lru_cache as cache
-
+from collections import namedtuple
 
 def _lookup_jit_method_by_pc(pc):
     for objf in gdb.objfiles():
@@ -88,10 +88,22 @@ class FrameId(object):
         self.sp = sp
         self.pc = pc
 
+JITPrologueInfo = namedtuple('PrologueInfo', ['jitEntry', 'frameAllocd', 'frameBuilt'])
+
 class JITFrameInfo(object):
-    def __init__(self, pc, method):
+    def __init__(self, pc, method = None):
         self.pc = pc
+        if method == None:
+            method = _lookup_jit_method_by_pc(pc)
+            assert method != None, "No method for given PC: %s" % hex(pc)
         self.method = method
+
+    def create_prologue_info(self):
+        jitEntry = self.method.startPC + self.method.numParamSlots() * 4
+        frameAllocd = jitEntry + 4 + 4
+        frameBuilt = frameAllocd # FIXME!!!
+        return JITPrologueInfo(jitEntry=jitEntry, frameAllocd=frameAllocd, frameBuilt=frameBuilt)
+
 
     def create_unwind_info(self, pending_frame):
         # First, compute SP (frame pointer in fact) and RA (return address)
@@ -112,7 +124,7 @@ class JITFrameInfo(object):
         #
         # NOTE: We define method frame's CFA as the value of SP (s11) once the
         #       frame is built. This is unusual, but matches what's in (some) OpenJ9
-        #       code is called (java) BP.
+        #       code is called (java) BP (base pointer)
         #
         # NOTE: Here we assume the prologue is always in the same form:
         #
@@ -143,12 +155,11 @@ class JITFrameInfo(object):
 
         frame_size_in_bytes = num_frame_slots*8 + 8
 
-        if self.pc < (self.method.startPC + num_param_slots*4 + 4 + 4 + 4): # --- this slot
-            #                                            \   \   `-- store RA instruction
-            #                                             \   `----- adjust SP instruction
-            #                                              `-------- load params from stack
-            # We're inside the prologue before the frame is built and SP (s11) adjusted
-            cfa = pending_frame.read_register('s11') + frame_size_in_bytes
+        prologue = self.create_prologue_info()
+
+        if self.pc < prologue.frameAllocd:
+            # We're inside the prologue before the frame is allocated and SP (s11) adjusted
+            cfa = pending_frame.read_register('s11') - frame_size_in_bytes
             ra = pending_frame.read_register('ra')
         else:
             try:
