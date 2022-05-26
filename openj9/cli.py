@@ -139,7 +139,15 @@ class __DumpMethods(__LookupMethod):
         print(" #  GDB symtab linetable:")
         print("    addr                   line")
         for entry in linetable:
-            print("    0x%08x           %d" % ( entry.pc, entry.line) )
+            if entry.is_stmt:
+                is_stmt = 'STMT'
+            else:
+                is_stmt = '    '
+            if entry.prologue_end:
+                prologue_end = '<-- first insn after prologue'
+            else:
+                prologue_end = ''
+            print("    0x%08x           %-5d %4s %s" % ( entry.pc, entry.line, is_stmt, prologue_end) )
         print()
 
 dm = __DumpMethods()

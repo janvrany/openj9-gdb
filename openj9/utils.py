@@ -53,6 +53,39 @@ class RangeMap:
     def __repr__(self):
         return "RangeMap(%s)" % repr(self._mapping)
 
+class MethodPrologueInfo(object):
+    """
+    A helper object that describes method's prologue.
+    """
+
+    def __init__(self, method):
+        self._method = method
+        # FIXME: RISC-V specific
+        self._jitEntry = self._method.startPC + self._method.numParamSlots() * 4
+        self._frameAllocd = self._jitEntry + 4 + 4
+        self._frameBuilt = self._frameAllocd # FIXME!!!
+
+    @property
+    def startPC(self):
+        return self._method.startPC
+
+    @property
+    def jitEntry(self):
+        return self._jitEntry
+
+    @property
+    def frameAllocd(self):
+        return self._frameAllocd
+
+    @property
+    def frameBuilt(self):
+        return self._frameBuilt
+
+    @property
+    def endPC(self):
+        return self.frameBuilt
+
+
 class MethodInfo(object):
     def __init__(self, metaDataVal, compilerVal = None, bytecodeTable = None):
         assert compilerVal != None or bytecodeTable != None
@@ -149,6 +182,11 @@ class MethodInfo(object):
         """
         return int(self._metaDataVal['slots'])
 
+    @property
+    @cache
+    def prologueInfo(self):
+        return MethodPrologueInfo(self)
+
     def registerCompiled(self):
         """
         Register method in GDB.
@@ -158,9 +196,10 @@ class MethodInfo(object):
         # Java line number table)
         lineTable = []
         pc = self.startPC
+        prologue = self.prologueInfo
         while pc < self.endPC:
             line = self.lineNumberTable[self.bytecodeTable[pc]]
-            lineTable.append(gdb.LineTableEntry(line, pc, is_stmt=True))
+            lineTable.append(gdb.LineTableEntry(line, pc, pc >= prologue.endPC, pc == prologue.endPC))
             pc = pc + 4
 
         self._objfile = gdb.Objfile(self.name)

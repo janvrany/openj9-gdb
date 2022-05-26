@@ -88,8 +88,6 @@ class FrameId(object):
         self.sp = sp
         self.pc = pc
 
-JITPrologueInfo = namedtuple('PrologueInfo', ['jitEntry', 'frameAllocd', 'frameBuilt'])
-
 class JITFrameInfo(object):
     def __init__(self, pc, method = None):
         self.pc = pc
@@ -97,13 +95,6 @@ class JITFrameInfo(object):
             method = _lookup_jit_method_by_pc(pc)
             assert method != None, "No method for given PC: %s" % hex(pc)
         self.method = method
-
-    def create_prologue_info(self):
-        jitEntry = self.method.startPC + self.method.numParamSlots() * 4
-        frameAllocd = jitEntry + 4 + 4
-        frameBuilt = frameAllocd # FIXME!!!
-        return JITPrologueInfo(jitEntry=jitEntry, frameAllocd=frameAllocd, frameBuilt=frameBuilt)
-
 
     def create_unwind_info(self, pending_frame):
         # First, compute SP (frame pointer in fact) and RA (return address)
@@ -155,7 +146,7 @@ class JITFrameInfo(object):
 
         frame_size_in_bytes = num_frame_slots*8 + 8
 
-        prologue = self.create_prologue_info()
+        prologue = self.method.prologueInfo
 
         if self.pc < prologue.frameAllocd:
             # We're inside the prologue before the frame is allocated and SP (s11) adjusted
