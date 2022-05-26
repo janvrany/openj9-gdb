@@ -63,7 +63,8 @@ class MethodPrologueInfo(object):
         # FIXME: RISC-V specific
         self._jitEntry = self._method.startPC + self._method.numParamSlots() * 4
         self._frameAllocd = self._jitEntry + 4 + 4
-        self._frameBuilt = self._frameAllocd # FIXME!!!
+        self._stackChecked = self._frameAllocd + 4 + 4
+        self._frameBuilt = self._stackChecked # FIXME!!!
 
     @property
     def startPC(self):
@@ -76,6 +77,10 @@ class MethodPrologueInfo(object):
     @property
     def frameAllocd(self):
         return self._frameAllocd
+
+    @property
+    def stackChecked(self):
+        return self._stackChecked
 
     @property
     def frameBuilt(self):
@@ -187,24 +192,28 @@ class MethodInfo(object):
     def prologueInfo(self):
         return MethodPrologueInfo(self)
 
-    def registerCompiled(self):
+    def linetable(self):
         """
-        Register method in GDB.
+        Return GDB linetable for this method
         """
-
-        # First. build GDB line table (don't confuse this with
-        # Java line number table)
         lineTable = []
         pc = self.startPC
         prologue = self.prologueInfo
         while pc < self.endPC:
             line = self.lineNumberTable[self.bytecodeTable[pc]]
-            lineTable.append(gdb.LineTableEntry(line, pc, pc >= prologue.endPC, pc == prologue.endPC))
+            is_stmt = pc >= prologue.endPC      # is this a good place to place breakpoint for given line?
+            prologue_end = pc == prologue.endPC # is this the first instruction after prologue?
+            lineTable.append(gdb.LineTableEntry(line, pc, is_stmt, prologue_end))
             pc = pc + 4
+        return lineTable
 
+    def registerCompiled(self):
+        """
+        Register method in GDB.
+        """
         self._objfile = gdb.Objfile(self.name)
         self._symtab = gdb.Symtab(self._objfile, self.className + '.java')
-        self._symtab.set_linetable(lineTable)
+        self._symtab.set_linetable(self.linetable())
         self._block = self._symtab.add_block(self.name, self.startPC, self.endPC)
 
         self._objfile.j9method = self
