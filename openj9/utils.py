@@ -211,10 +211,24 @@ class MethodInfo(object):
         """
         Register method in GDB.
         """
+
+        # We use simplistic approach where for every compiled method
+        # an objfile, compunit and a single "function" block is created.
+
         self._objfile = gdb.Objfile(self.name)
-        self._symtab = gdb.Symtab(self._objfile, self.className + '.java')
-        self._symtab.set_linetable(self.linetable())
-        self._block = self._symtab.add_block(self.name, self.startPC, self.endPC)
+        compunit = gdb.Compunit(self.name, self._objfile, self.startPC, self.endPC, 3)
+
+        symtab = gdb.Symtab(self.className + '.java', compunit)
+        gdb.LineTable(symtab, self.linetable())
+
+        block = gdb.Block(compunit.static_block(), self.startPC, self.endPC)
+
+        ftype = gdb.selected_inferior().architecture().void_type().function(None)
+        symbol = gdb.Symbol(self.name, symtab, ftype,
+                                  gdb.SYMBOL_FUNCTION_DOMAIN, gdb.SYMBOL_LOC_BLOCK,
+                                  block)
+
+        compunit.static_block().add_symbol(symbol)
 
         self._objfile.j9method = self
 
@@ -224,7 +238,5 @@ for objfile in gdb.objfiles():
         old = getattr(objfile, 'j9method')
         new = MethodInfo(old._metaDataVal, bytecodeTable=old._bytecodeTable)
         new._objfile = old._objfile
-        new._symtab = old._symtab
-        new._block = old._block
 
         setattr(objfile, 'j9method', new)
